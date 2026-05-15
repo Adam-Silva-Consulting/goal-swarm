@@ -1,0 +1,134 @@
+{
+  "name": "goal-swarm",
+  "displayName": "goal-swarm",
+  "description": "Multi-agent AI coding orchestration. Coordinator + Specialist + Verifier swarm across Claude Code, Codex CLI, Gemini CLI, and Ollama. $0 API cost via OAuth-routed harnesses.",
+  "version": "0.1.2",
+  "publisher": "adamsilvaconsulting",
+  "license": "MIT",
+  "icon": "icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Adam-Silva-Consulting/goal-swarm"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "ai",
+    "agents",
+    "claude",
+    "codex",
+    "gemini",
+    "orchestration",
+    "multi-agent"
+  ],
+  "main": "./extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "goalSwarmContainer",
+          "title": "goal-swarm",
+          "icon": "icon-activity.svg"
+        }
+      ]
+    },
+    "views": {
+      "goalSwarmContainer": [
+        {
+          "id": "goalSwarmHome",
+          "name": "Swarm",
+          "type": "webview"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "goalSwarm.plan",
+        "title": "goal-swarm: Plan a swarm",
+        "category": "goal-swarm",
+        "icon": "$(rocket)"
+      },
+      {
+        "command": "goalSwarm.status",
+        "title": "goal-swarm: Status of a swarm",
+        "category": "goal-swarm"
+      },
+      {
+        "command": "goalSwarm.watch",
+        "title": "goal-swarm: Watch event log",
+        "category": "goal-swarm"
+      },
+      {
+        "command": "goalSwarm.archive",
+        "title": "goal-swarm: Archive a swarm",
+        "category": "goal-swarm"
+      },
+      {
+        "command": "goalSwarm.doctor",
+        "title": "goal-swarm: Doctor (probe roster)",
+        "category": "goal-swarm",
+        "icon": "$(pulse)"
+      },
+      {
+        "command": "goalSwarm.openPanel",
+        "title": "goal-swarm: Open side panel",
+        "category": "goal-swarm"
+      },
+      {
+        "command": "goalSwarm.refreshHome",
+        "title": "Refresh",
+        "category": "goal-swarm",
+        "icon": "$(refresh)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "goalSwarm.plan",
+          "when": "view == goalSwarmHome",
+          "group": "navigation@1"
+        },
+        {
+          "command": "goalSwarm.doctor",
+          "when": "view == goalSwarmHome",
+          "group": "navigation@2"
+        },
+        {
+          "command": "goalSwarm.refreshHome",
+          "when": "view == goalSwarmHome",
+          "group": "navigation@3"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "goal-swarm",
+      "properties": {
+        "goalSwarm.scriptPath": {
+          "type": "string",
+          "default": "",
+          "description": "Absolute path to the bundled goal-swarm.js. Leave blank to auto-resolve relative to the extension."
+        },
+        "goalSwarm.useTerminal": {
+          "type": "boolean",
+          "default": true,
+          "description": "Run commands in an integrated terminal (shows live output). Disable to capture stdout silently."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "package": "npx @vscode/vsce package",
+    "install:local": "npx @vscode/vsce package && code --install-extension goal-swarm-*.vsix",
+    "install:antigravity": "npx @vscode/vsce package && antigravity --install-extension goal-swarm-*.vsix"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.85.0"
+  }
+}

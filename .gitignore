@@ -1,0 +1,20 @@
+# Skill users: add .goal-swarm/active/ and .swarm/ to YOUR repo's .gitignore
+# so live swarm state stays local. This .gitignore is for the skill folder
+# itself when published as its own repo.
+
+# Local config overrides
+config.json
+.goal-swarm/
+
+# Editor cruft
+.DS_Store
+*.swp
+*.swo
+.idea/
+.vscode/
+
+# Build artifacts (none today; here for v2 IDE extension)
+ide-extension/out/
+ide-extension/dist/
+ide-extension/node_modules/
+*.vsix

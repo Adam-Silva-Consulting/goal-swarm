@@ -1,0 +1,12 @@
+# Funding sources for goal-swarm.
+# 60% of net donation revenue is distributed quarterly to active contributors
+# via Stripe Connect Express. See CONTRIBUTING.md for the model.
+
+github: [adamsilvaconsulting]    # activates once Sponsors application is approved
+
+custom:
+  - https://buy.stripe.com/4gMdR1arFeTB3bAaJ3dnW02   # Coffee — $5/mo
+  - https://buy.stripe.com/dRm5kvczNcLtdQe5oJdnW03   # Power User — $25/mo
+  - https://buy.stripe.com/cNifZ9czN26PdQeg3ndnW04   # Team — $100/mo
+  - https://buy.stripe.com/14AaEP6bpbHpcMa18tdnW05   # Sponsor — $500/mo
+  - https://buy.stripe.com/6oU5kv8jx4eX3bAdVfdnW06   # Founding Sponsor — $5,000 once

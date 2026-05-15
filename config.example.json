@@ -1,0 +1,35 @@
+{
+  "$schema": "Roster for the Stage 0 planning council. Each member is a CLI invocation or HTTP endpoint.",
+
+  "roster": [
+    {
+      "name": "claude",
+      "cmd": "claude -p",
+      "role_hint": "good for coordination, planning, hook-bounded /goal"
+    },
+    {
+      "name": "codex",
+      "cmd": "codex exec --skip-git-repo-check -c model_provider=openai -",
+      "role_hint": "good for code edits + autonomous /goal loops. Uses your OpenAI ChatGPT Pro/Plus auth (`codex login`). `--skip-git-repo-check` lets the council fan out from any cwd (otherwise codex refuses outside a git repo). The trailing `-` reads the prompt from stdin (avoids Windows cmd.exe 8KB arg limit). Override `model_provider` if you use cliproxy/ProxyPilot."
+    },
+    {
+      "name": "gemini",
+      "bridge": "http://127.0.0.1:9876/chat-and-wait",
+      "role_hint": "Routes through Antigravity's IDE Gemini panel via asc-bridge. Uses Antigravity OAuth (no separate API key needed). Falls back to standalone `gemini -p` if bridge unreachable.",
+      "fallback_cmd": "gemini -p"
+    }
+  ],
+
+  "$ollama_entries_for_v2": "Uncomment after `ollama pull <model>`",
+  "$kimi_k2": { "name": "kimi-k2", "endpoint": "http://localhost:11434/api/chat", "model": "kimi-k2:latest", "role_hint": "strong reasoning, free, local" },
+  "$glm_5":   { "name": "glm-5",   "endpoint": "http://localhost:11434/api/chat", "model": "glm:5.1-air",     "role_hint": "fast, good with structured outputs" },
+  "$qwen_c":  { "name": "qwen-c",  "endpoint": "http://localhost:11434/api/chat", "model": "qwen3-coder:14b", "role_hint": "strong code generation, local" },
+
+  "council_timeout_sec": 180,
+
+  "default_max_iterations": 25,
+
+  "verifier_must_differ_from_specialist": true,
+
+  "ralph_wiggum_kill_switch": true
+}
