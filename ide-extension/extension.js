@@ -32,13 +32,57 @@ function resolveScriptPath(context) {
   return null;
 }
 
+// Shared OutputChannel — survives across multiple Plan/Status/Watch calls
+// so users can scroll back through earlier swarm runs in one place.
+let _outputChannel = null;
+function getOutputChannel() {
+  if (!_outputChannel) _outputChannel = vscode.window.createOutputChannel('goal-swarm');
+  return _outputChannel;
+}
+
+function runWithOutput(scriptPath, subcommand, args, opts) {
+  // Stream stdout/stderr to the goal-swarm OutputChannel. This bypasses
+  // terminal quoting issues entirely (PowerShell vs cmd vs bash all handle
+  // escape rules differently; spawning directly removes the shell from the
+  // loop). Returns a Promise that resolves with the exit code.
+  const channel = getOutputChannel();
+  channel.show(true);
+  const ts = new Date().toISOString();
+  channel.appendLine('');
+  channel.appendLine(`──── ${ts} ──── ${subcommand} ────`);
+  channel.appendLine(`$ node ${scriptPath} ${subcommand} ${args.map(a => JSON.stringify(a)).join(' ')}`);
+  channel.appendLine('');
+  const ws = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || process.cwd();
+  return new Promise((resolve) => {
+    const child = spawn('node', [scriptPath, subcommand, ...args], {
+      cwd: ws,
+      shell: false,
+      env: { ...process.env, ...(opts?.env || {}) },
+    });
+    child.stdout.on('data', d => channel.append(d.toString()));
+    child.stderr.on('data', d => channel.append(d.toString()));
+    child.on('error', err => {
+      channel.appendLine(`\n[error] ${err.message}`);
+      resolve({ code: -1, error: err.message });
+    });
+    child.on('exit', code => {
+      channel.appendLine(`\n──── exit ${code} ────`);
+      resolve({ code: code || 0 });
+    });
+  });
+}
+
 function runInTerminal(scriptPath, subcommand, args) {
+  // Legacy terminal path, kept for `watch` (which is genuinely interactive
+  // and benefits from tail-style live output in a terminal). Other commands
+  // route through runWithOutput now.
+  const ws = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
   const terminal = vscode.window.createTerminal({
     name: `goal-swarm: ${subcommand}`,
-    cwd: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+    cwd: ws,
   });
   terminal.show();
-  const quotedArgs = args.map(a => `"${a.replace(/"/g, '\\"')}"`).join(' ');
+  const quotedArgs = args.map(a => `"${String(a).replace(/"/g, '\\"')}"`).join(' ');
   terminal.sendText(`node "${scriptPath}" ${subcommand} ${quotedArgs}`);
 }
 
@@ -71,7 +115,11 @@ class GoalSwarmHomeProvider {
   resolveWebviewView(view) {
     this.view = view;
     view.webview.options = { enableScripts: true };
-    view.webview.html = this.render();
+    // Initial render with "detecting..." placeholder, then async-detect roster
+    view.webview.html = this.render(null);
+    this.detectHarnessesAsync().then(harnesses => {
+      if (this.view) this.view.webview.html = this.render(harnesses);
+    });
     view.webview.onDidReceiveMessage(msg => {
       if (msg.cmd === 'plan')    vscode.commands.executeCommand('goalSwarm.plan');
       if (msg.cmd === 'doctor')  vscode.commands.executeCommand('goalSwarm.doctor');
@@ -79,14 +127,64 @@ class GoalSwarmHomeProvider {
       if (msg.cmd === 'watch')   vscode.commands.executeCommand('goalSwarm.watch');
       if (msg.cmd === 'archive') vscode.commands.executeCommand('goalSwarm.archive');
       if (msg.cmd === 'refresh') {
-        view.webview.html = this.render();
+        view.webview.html = this.render(null);
+        this.detectHarnessesAsync().then(h => {
+          if (this.view) this.view.webview.html = this.render(h);
+        });
       }
     });
   }
 
-  render() {
+  detectHarnessesAsync() {
+    // Run council-fanout detect to get the roster status. Returns array of
+    // { name, target, available } or null on failure. Times out after 12s
+    // to avoid hanging the panel on a stuck CLI probe.
+    return new Promise(resolve => {
+      const scriptPath = resolveScriptPath(this.context);
+      if (!scriptPath) return resolve(null);
+      const fanoutPath = path.join(path.dirname(scriptPath), 'council-fanout.js');
+      if (!fs.existsSync(fanoutPath)) return resolve(null);
+      const ws = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || process.cwd();
+      const child = spawn('node', [fanoutPath, 'detect'], { cwd: ws, shell: false });
+      let stdout = '';
+      const timer = setTimeout(() => { child.kill(); resolve(null); }, 12000);
+      child.stdout.on('data', d => { stdout += d.toString(); });
+      child.on('exit', () => {
+        clearTimeout(timer);
+        // Parse the detect output:
+        //   [AVAILABLE] claude  claude -p
+        //   [missing] codex  codex exec ...
+        //   [AVAILABLE] gemini  http://127.0.0.1:9876/chat-and-wait
+        const harnesses = [];
+        for (const line of stdout.split(/\r?\n/)) {
+          const m = line.match(/\[(AVAILABLE|missing)\]\s+(\S+)\s+(.+)$/);
+          if (m) harnesses.push({ available: m[1] === 'AVAILABLE', name: m[2], target: m[3].trim() });
+        }
+        resolve(harnesses);
+      });
+      child.on('error', () => { clearTimeout(timer); resolve(null); });
+    });
+  }
+
+  render(harnesses) {
     const ws = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     const activeGoals = this.listActiveGoals(ws);
+    let harnessSection;
+    if (harnesses === null || harnesses === undefined) {
+      harnessSection = '<div class="empty">Detecting installed harnesses...</div>';
+    } else if (harnesses.length === 0) {
+      harnessSection = '<div class="empty">No harnesses found. Install claude / codex / gemini CLIs.</div>';
+    } else {
+      const okCount = harnesses.filter(h => h.available).length;
+      harnessSection = `<div class="harness-summary">${okCount} of ${harnesses.length} available</div>` +
+        harnesses.map(h => `
+          <div class="harness-item ${h.available ? 'ok' : 'missing'}">
+            <span class="harness-dot"></span>
+            <span class="harness-name">${escapeHtml(h.name)}</span>
+            <span class="harness-target">${escapeHtml(h.target)}</span>
+          </div>
+        `).join('');
+    }
     return `<!DOCTYPE html>
 <html><head><meta charset="UTF-8" /><style>
   body {
@@ -135,6 +233,18 @@ class GoalSwarmHomeProvider {
   }
   .goal-item:hover { background: var(--vscode-list-hoverBackground); }
   .empty { font-size: 11px; opacity: 0.5; font-style: italic; padding: 4px 0; }
+  .harness-summary { font-size: 10px; opacity: 0.7; margin-bottom: 6px; }
+  .harness-item {
+    display: flex; align-items: center; gap: 6px;
+    padding: 4px 8px; margin-bottom: 2px; border-radius: 3px; font-size: 11px;
+    background: var(--vscode-list-inactiveSelectionBackground);
+  }
+  .harness-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .harness-item.ok .harness-dot { background: #10b981; }
+  .harness-item.missing .harness-dot { background: #6b7280; opacity: 0.5; }
+  .harness-item.missing { opacity: 0.5; }
+  .harness-name { font-weight: 600; min-width: 60px; }
+  .harness-target { font-size: 10px; opacity: 0.7; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .footer { margin-top: 20px; padding-top: 12px; border-top: 1px solid var(--vscode-panel-border); font-size: 10px; opacity: 0.6; line-height: 1.5; }
   .footer a { color: var(--vscode-textLink-foreground); text-decoration: none; }
   .footer a:hover { text-decoration: underline; }
@@ -154,6 +264,9 @@ class GoalSwarmHomeProvider {
   <button class="secondary" onclick="post('status')"><span class="icon">&#x2139;</span><span>Status of a swarm</span></button>
   <button class="secondary" onclick="post('watch')"><span class="icon">&#x1F441;</span><span>Watch event log</span></button>
   <button class="secondary" onclick="post('archive')"><span class="icon">&#x1F4E6;</span><span>Archive a swarm</span></button>
+
+  <div class="section">Harnesses</div>
+  ${harnessSection}
 
   <div class="section">Active goals</div>
   <div class="goal-list">
@@ -265,7 +378,7 @@ function activate(context) {
     if (!objective) return;
     const useTerminal = vscode.workspace.getConfiguration('goalSwarm').get('useTerminal', true);
     if (useTerminal) {
-      runInTerminal(scriptPath, 'plan', [objective]);
+      runWithOutput(scriptPath, 'plan', [objective]);
     } else {
       const p = openPanel(context);
       p.webview.html = renderPanelHtml(`Planning: ${objective}\n\nRunning Stage 0 council in plan-mode (no writes)...`, 'running');
@@ -282,7 +395,7 @@ function activate(context) {
     if (!scriptPath) { vscode.window.showErrorMessage('goal-swarm: bundled CLI not found.'); return; }
     const goalId = await vscode.window.showInputBox({ placeHolder: 'goal ID (e.g. g-2026-05-15-rate-limit)', prompt: 'goal-swarm: Status' });
     if (!goalId) return;
-    runInTerminal(scriptPath, 'status', [goalId]);
+    runWithOutput(scriptPath, 'status', [goalId]);
   }));
 
   context.subscriptions.push(vscode.commands.registerCommand('goalSwarm.watch', async () => {
@@ -298,12 +411,12 @@ function activate(context) {
     if (!goalId) return;
     const yes = await vscode.window.showWarningMessage(`Archive ${goalId}?`, { modal: true }, 'Archive', 'Cancel');
     if (yes !== 'Archive') return;
-    runInTerminal(scriptPath, 'archive', [goalId]);
+    runWithOutput(scriptPath, 'archive', [goalId]);
   }));
 
   context.subscriptions.push(vscode.commands.registerCommand('goalSwarm.doctor', () => {
     if (!scriptPath) { vscode.window.showErrorMessage('goal-swarm: bundled CLI not found.'); return; }
-    runInTerminal(scriptPath, 'doctor', []);
+    runWithOutput(scriptPath, 'doctor', []);
   }));
 
   context.subscriptions.push(vscode.commands.registerCommand('goalSwarm.openPanel', () => {
